@@ -6,9 +6,15 @@ const Area = Vector{CartesianIndex{2}}
 
 export metric
 
+function intersection_over_union(this::Matrix{Bool}, that::Matrix{Bool})::Float64
+    ni = sum(this .* that)
+    nu = sum(this .| that)
+    return ni / nu
+end
+
 function intersection_over_union(this::Area, that::Area)::Float64
-    ni = length(intersect(this, that))
-    nu = length(union(this, that))
+    ni = length(this ∩ that)
+    nu = length(this ∪ that)
     return ni / nu
 end
 

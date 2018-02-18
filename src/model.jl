@@ -1,167 +1,84 @@
 module Model
 
-using Distances
+using Images
+using Reexport
+
 using DSB2018.Data
 using DSB2018.Errors
 
-import Base: isless, ∈
-export isless, ∈, Cell
-export start, next, done, collect
-
-using Images
-import Base: start, next, done, collect
-import ImageView: imshow
-import Base: convert
 import DSB2018.Errors: metric
+import Base: convert, collect
 
-export convert, imshow, collect, metrics
+export DSBImage
+export convert, metric, grow!, grow
 
-const Coordinate = CartesianIndex{2}
-const Area = Dict{Coordinate, Float64}
+global const Coordinate = CartesianIndex{2}
+global const Area{T} = Dict{Coordinate, T}
 
-∈(x::Coordinate, a::Area) = haskey(a, x)
+include("molecular.jl")
+@reexport using .Molecular
 
-function neighbors(this::Coordinate, numrows::Int64, numcols::Int64; r::Int64 = 1)::Vector{Coordinate}
-    res = Coordinate[]
+import .Molecular: start!, next!, done!, belongs, iscell, grow!
 
-    h = -r:1:r
-    v = -r:1:r
-    for ik in h, ij in v
-        if ik == 0 && ij == 0
-            continue
-        end
-
-        x, y = this[1] + ik, this[2] + ij
-        if x > 0 && y > 0
-            if x > numrows
-                continue
-            end
-
-            if y > numcols
-                continue
-            end
-
-            push!(res, CartesianIndex{2}(x, y))
-        end
+function convert(::Type{Area{T}}, m::AbstractMatrix{X}) where {T <: Any, X <: Any}
+    out = Area{T}()
+    for j in CartesianRange(CartesianIndex{2}(1, 1), CartesianIndex{2}(size(m)))
+        out[j] = convert(T, m[j])
     end
-
-    return res
+    return out
 end
 
-function distance(x::Coordinate)::Float64
-    return sqrt(x[1]^2 + x[2]^2)
-end
-
-function distance(x::Coordinate, y::Coordinate)::Float64
-    return distance(x - y)
-end
-
-include("./shapes/line.jl")
-include("./shapes/set.jl")
-
-function distance_no_nearest(area::Vector{Coordinate})::Vector{Float64}
-    out = Vector{Float64}(length(area))
-    for k in eachindex(area)
-        base = area[k]
-        m = Inf
-        for x in area
-            if x == area[k]
-                continue
-            end
-
-            δ = distance(base, x)
-            if δ < m
-                m = δ
-            end
-        end
-
-        out[k] = m
+function convert(::Type{BitArray{2}}, area::Area{T}, sz::Tuple{Int64, Int64})::BitArray{2} where {T <: Any}
+    out = BitArray{2}(sz[1], sz[2]) .* false
+    for (k, v) in area
+        out[k] = convert(Bool, v)
     end
 
     return out
 end
 
-function getImages()
-    out = Data.Image[]
-    for (k, v) in Data.TrainImages
-        push!(out, v)
-    end
-    return out
-end
-
-struct ImagePrediction
-    image::Data.Image
-    prediction::Dict{UInt64, ThickSet}
-
-    function ImagePrediction(image::Data.Image)
-        return new(image, Dict{UInt64, ThickSet}())
-    end
-end
-
-function collect(this::ImagePrediction,
-                    avgsize::Int64,
-                    qsharpness::Float64,
-                    kernel::T) where {T <: AbstractArray{Float64, 2}}
-
-    img = imfilter(this.image.image, kernel)
-    sharpness = quantile(img[:], qsharpness)
-    @show sharpness
-
-    s = ThickSet(img, avgsize, sharpness)
-    for v in values(this.prediction)
-        merge!(s.covered, v.covered)
-    end
-
-    collect(s)
-
-    img_2_b = convert(Matrix{Bool}, s);
-    img_2_r = convert(Matrix{Float64}, img_2_b)
-    img_2_k = imfilter(img_2_r, Kernel.gaussian(0.2))
-
-    s_h = ThickSet(img_2_k, 2, sharpness/2.)
-    collect(s_h)
-
-    if !isempty(s_h.lines)
-        h = hash(avgsize)
-        h = hash(qsharpness, h)
-        h = hash(collect(kernel), h)
-
-        this.prediction[h] = s_h
-    end
-
-    return s_h
-end
-
-function get_truth_images(this::ImagePrediction)
-    return collect(values(this.image.masks))
-end
-
-function get_prediction_images(this::ThickSet)
-    prediction_images = Matrix{Bool}[]
-
-    for l in this.lines
-        x = convert(Matrix{Bool}, l)
-        push!(prediction_images, x)
-    end
-
-    return prediction_images
-end
-
-function metrics(this::ImagePrediction)::Dict{UInt64, Float64}
-    out = Dict{UInt64, Float64}()
-    for (k, v) in this.prediction
-        out[k] = metric(this, v)
+function convert(::Type{Matrix{X}}, area::Area{T}, sz::Tuple{Int64, Int64})::Matrix{X} where {T <: Any, X <: Any}
+    out = zeros(X, sz)
+    for (k, v) in area
+        out[k] = convert(X, v)
     end
 
     return out
 end
 
-function metric(this::ImagePrediction, that::ThickSet)::Float64
-    truth_images = get_truth_images(this)
-    prediction_images = get_prediction_images(that)
+function distance(a::Coordinate, b::Coordinate)::Float64
+    δx = a[1] - b[1]
+    δy = a[2] - b[2]
 
-    return Errors.metric(prediction_images, truth_images)
+    return sqrt(δx^2 + δy^2)
 end
 
+struct DSBImage{X}
+    data::Data.Image{X}
+    cache::Dict{Any, Colony}
+
+    function DSBImage(data::Data.Image{X}) where {X <: Any}
+        return new{X}(data, Dict{Any, Colony}())
+    end
+end
+
+function metric(this::DSBImage{X}, colony::Colony) where {X <: Any}
+    truths = collect(values(this.data.masks))
+    predictions = [convert(BitArray{2}, x.area, size(this.data.image)) for x in colony.cells]
+
+    return Errors.metric(predictions, truths)
+end
+
+function grow!(this::DSBImage{X}, model::T; show::Bool = false)::Colony where {X <: Any, T <: Any}
+    orig_model = deepcopy(model)
+    if !haskey(this.cache, orig_model)
+        this.cache[orig_model] = grow(this.data.image, model, show = show)
+    end
+
+    return this.cache[orig_model]
+end
+
+
+include("models/dmodel.jl")
 
 end
