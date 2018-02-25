@@ -1,3 +1,5 @@
+import Base: mean
+
 struct Cell{T <: Any, X <: Any}
     origin::Coordinate
     model::T
@@ -7,6 +9,10 @@ struct Cell{T <: Any, X <: Any}
                   area::Area{X}) where {T <: Any, X <: Any}
         return new{T, X}(origin, model, area)
     end
+end
+
+function mean(this::Cell{T, X})::X where {T <: Any, X <: Any}
+    return mean(values(this.area))
 end
 
 function imshow(this::Cell{T, X}, sz::Tuple{Int64, Int64}) where {T <: Any, X <: Any}
@@ -25,6 +31,19 @@ function start(this::Cell{T, X})::Coordinate where {T <: Any, X <: Any}
 end
 
 function next(this::Cell{T, X}, poligon::Area{X}, x::Coordinate)::Union{Void, Coordinate} where {T <: Any, X <: Any}
+    for δx in this.model.range
+        for δy in this.model.range
+            z = CartesianIndex((x[1] + δx, x[2] + δy))
+            if z ∉ poligon
+                continue
+            end
+
+            if belongs(this, x, Pair(z, poligon[z]))
+                return z
+            end
+        end
+    end
+
     for z in poligon
         if belongs(this, x, z)
             return z[1]
@@ -50,7 +69,7 @@ end
 function grow!(this::Cell{T, X}, poligon::Area{X})::Cell{T, X} where {T <: Any, X <: Any}
     state = start(this)
     while !done(this, state)
-        this.area[state] = true
+        this.area[state] = poligon[state]
         delete!(poligon, state)
         state = next(this, poligon, state)
     end

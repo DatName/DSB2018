@@ -51,7 +51,7 @@ end
 global const TrainImages = Dict{String, Image}()
 global const TestImages = Dict{String, Image}()
 
-function loadTrainImages!(atmost::Float64 = Inf)
+function loadTrainImages!(atmost = Inf)
     global TrainImages
     global STAGE1_TRAIN
     c = 0.0
@@ -60,6 +60,8 @@ function loadTrainImages!(atmost::Float64 = Inf)
         c += 1.0
         c > atmost &&  break
     end
+
+    return TrainImages
 end
 
 function test_image(this::Image{X})::BitArray{2} where {X <: Any}
