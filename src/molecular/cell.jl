@@ -34,7 +34,12 @@ function next(this::Cell{T, X}, poligon::Area{X}, x::Coordinate)::Union{Void, Co
     for δx in this.model.range
         for δy in this.model.range
             z = CartesianIndex((x[1] + δx, x[2] + δy))
+            
             if z ∉ poligon
+                continue
+            end
+
+            if z ∈ this.area
                 continue
             end
 
@@ -50,14 +55,24 @@ function next(this::Cell{T, X}, poligon::Area{X}, x::Coordinate)::Union{Void, Co
         end
     end
 
-    #FIXME: this is tooo slow
-    # for y in keys(this.area)
-    #     for z in poligon
-    #         if belongs(this, y, z)
-    #             return z[1]
-    #         end
-    #     end
-    # end
+    for x in keys(this.area)
+        for δx in this.model.range
+            for δy in this.model.range
+                z = CartesianIndex((x[1] + δx, x[2] + δy))
+                if z ∉ poligon
+                    continue
+                end
+
+                if z ∈ this.area
+                    continue
+                end
+
+                if belongs(this, x, Pair(z, poligon[z]))
+                    return z
+                end
+            end
+        end
+    end
 
     return nothing
 end

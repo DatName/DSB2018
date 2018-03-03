@@ -68,10 +68,15 @@ function grow!(this::Colony{T, X},
                 sz::Tuple{Int64, Int64};
                 show::Bool = false)::Colony{T, X} where {T <: Any, X <: Any}
 
+    empty_cells = 0
     x = start!(this, poligon, sz)
     while true
+        println("Collecting cell from ", x)
+
         cell = Cell(x, this.model, Area{X}())
         cell = grow!(cell, poligon)
+
+        @show length(cell.area)
 
         if iscell(cell)
             push!(this.cells, cell)
@@ -79,12 +84,19 @@ function grow!(this::Colony{T, X},
                 imshow(this, sz)
                 sleep(5)
             end
+        else
+            empty_cells += 1
+        end
+
+        if length(this.cells) > 2
+            break
         end
 
         x = next!(this, poligon, sz)
         done!(this, poligon, x) && break
     end
 
+    @show empty_cells
     return this
 end
 
