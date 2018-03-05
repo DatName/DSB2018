@@ -23,6 +23,7 @@ function fit!(this::XModel, rawimg::Matrix{X}) where {X <: Any}
         qmin, qmax = extrema(img)
         this.base_color = qmin + (qmax * 0.99 - qmin) / 6.
     end
+    this.range = -this.size:1:this.size
     return img
 end
 
@@ -147,7 +148,10 @@ function belongs(this::Cell{XModel, Bool},
         return false
     end
 
-    return distance(cur, nxt.first) < this.model.size
+    abs(cur[1] - nxt.first[1]) > 1 && return false
+    abs(cur[2] - nxt.first[2]) > 1 && return false
+
+    return true
 end
 
 function belongs(this::Cell{XModel, X},
@@ -202,15 +206,15 @@ function grow(input::Matrix{X},
                             grey_poligon,
                             size(grey_image),
                             show = show)
+    #
+    black_poligon = Area{Bool}()
+    for c in grey_colony.cells
+        [black_poligon[x] = true for x in keys(c.area)]
+    end
 
-    imshow(grey_colony, size(grey_image))
-
-    black_image  = convert(BitArray{2}, grey_colony, size(grey_image))
-
-    black_poligon = convert(Area{Bool},  black_image)
     black_colony  = grow!(Colony(model, Bool),
                             black_poligon,
-                            size(black_image))
+                            size(grey_image))
 
-    return (grey_colony, black_colony)
+    return grey_colony, black_colony
 end

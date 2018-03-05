@@ -34,7 +34,7 @@ function next(this::Cell{T, X}, poligon::Area{X}, x::Coordinate)::Union{Void, Co
     for δx in this.model.range
         for δy in this.model.range
             z = CartesianIndex((x[1] + δx, x[2] + δy))
-            
+
             if z ∉ poligon
                 continue
             end

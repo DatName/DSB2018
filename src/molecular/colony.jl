@@ -25,6 +25,11 @@ function convert(::Type{BitArray{2}},
     return out
 end
 
+function get_random_color(seed)
+    srand(seed)
+    rand(RGB{Float64})
+end
+
 function convert(::Type{Matrix{RGB{Float64}}},
                 this::Colony{T, X},
                 sz::Tuple{Int64, Int64}) where {T <: Any, X <: Any}
@@ -34,11 +39,13 @@ function convert(::Type{Matrix{RGB{Float64}}},
         out[x] = RGB(0.0, 0.0, 0.0)
     end
 
+    c = 0
     for cell in this.cells
-        color = RGB(rand(), rand(), rand())
+        color = get_random_color(c)
         for k in keys(cell.area)
             out[k] = color
         end
+        c += 1;
     end
 
     return out
