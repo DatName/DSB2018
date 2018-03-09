@@ -108,7 +108,8 @@ function metric(prediction_images::Vector{T},
 end
 
 function metric(prediction_images::Vector{T},
-                truth_images::Vector{G}; assert_intersection::Bool = false)::Float64 where {T <: AbstractMatrix, G <: AbstractMatrix}
+                truth_images::Vector{G};
+                assert_intersection::Bool = false)::Float64 where {T <: AbstractMatrix, G <: AbstractMatrix}
 
     if assert_intersection
         assert_empty_intersection(prediction_images)
