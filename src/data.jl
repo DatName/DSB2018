@@ -19,7 +19,7 @@ struct Image{X}
     id::String
     image::Matrix{X}
     masks::Dict{String, Matrix{Bool}}
-    function Image{X}(id::String, root_path::String) where {X <: Any}
+    function Image{X}(id::String, root_path::String; assert_masks::Bool = false) where {X <: Any}
         images = joinpath(root_path, id, "images")
         masks  = joinpath(root_path, id, "masks")
         images_files = readdir(images)
@@ -29,17 +29,14 @@ struct Image{X}
 
         image = Images.load(joinpath(images, first(images_files)))
         masks_objects = Dict{String, Matrix{Bool}}()
+        u = oneunit(ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}})
         for item in readdir(masks)
             new_mask = Images.load(joinpath(masks, item))
-            @assert length(unique(new_mask)) == 2
-            @assert isempty(setdiff(unique(new_mask), [0, 1]))
-
-            m = BitArray(size(new_mask)) .* false
-            for x in CartesianRange(CartesianIndex(1, 1), CartesianIndex(size(m)))
-                m[x] = new_mask[x] == 1
+            if assert_masks
+                @assert length(unique(new_mask)) == 2
+                @assert isempty(setdiff(unique(new_mask), [0, 1]))
             end
-
-            masks_objects[item] = m
+            masks_objects[item] = new_mask .== u
         end
 
         return new{X}(id, image, masks_objects)

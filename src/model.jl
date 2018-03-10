@@ -32,7 +32,7 @@ function construct_densities(images::Vector)
     return res
 end
 
-function get_scores_by_density(images::Vector{X}, numsamples::Int64) where {X <: Any}
+function get_scores_by_density(images::Vector{X}) where {X <: Any}
 
     scores = Vector{Float64}(length(images))
     Juno.@progress "Scoring" for k in eachindex(images)
@@ -40,7 +40,11 @@ function get_scores_by_density(images::Vector{X}, numsamples::Int64) where {X <:
 
         truth_images = collect(values(raw_image.masks))
         img = convert.(Float64, raw_image.image)
-        res = to_density(img, 1.0, 3, numsamples)
+        res = to_density(img, 1.0, 3)
+
+        if any(isinf.(res) .| isnan.(res))
+            throw("At image $k: non-finite or nan res")
+        end
 
         adaptive_threshold = skimage_filters.threshold_local(res, 21, offset=0.0)
         global_threshold   = skimage_filters.threshold_otsu(res)
@@ -73,25 +77,13 @@ function split_connected_regions(this::Union{Matrix{Bool}, BitArray{2}}, x...)::
     return out
 end
 
-function get_density(this::Vector{Float64}, numsamples::Int64)::Vector{Float64}
-    nbins = length(this)
-    x = collect(1 : length(this)) .* 1.0
-    z = StatsBase.sample(x, Weights(this), numsamples);
-    h = StatsBase.fit(Histogram, z, nbins = nbins, closed = :left)
+function get_density(this::Vector{Float64})::Vector{Float64}
+    st = sum(this)
+    if st .< 1e-3
+        return zeros(size(this))
+    end
 
-    edges = collect(h.edges[1])[2:end]
-    vals  = collect(h.weights)
-
-    vals = vals / sum(vals)
-    ρ = interpolate((edges,), vals, Gridded(Linear()))
-
-    ρx = ρ[x]
-
-    zu = unique(z)
-    u = Distributions.Uniform(minimum(zu), maximum(zu))
-    pval = pvalue(ApproximateOneSampleKSTest(zu, u))
-
-    return ρx / sum(ρx) / length(ρx) * nbins * pval
+    return this / sum(this) / length(this) * 100
 end
 
 function distance(x1::CartesianIndex, x2::CartesianIndex)::Float64
@@ -116,8 +108,7 @@ end
 
 function to_density(this::Matrix{Float64},
                     σ::Float64,
-                    nlag::Int64,
-                    numsamples::Int64)
+                    nlag::Int64)
 
     this = skimage_restoration.denoise_bilateral(this, multichannel=false)
 
@@ -134,8 +125,8 @@ function to_density(this::Matrix{Float64},
 
     for k = 1 : size(this, 1)
         mvalues = this[k, :]
-        densities = get_density(mvalues, numsamples)
-        if nlag != 1
+        densities = get_density(mvalues)
+        if (nlag != 1) && (sum(densities) > 0.0)
             densities *= StatsBase.autocor(densities, [nlag])[1]
         end
 
@@ -145,8 +136,8 @@ function to_density(this::Matrix{Float64},
 
     for k = 1 : size(this, 2)
         mvalues = this[:, k]
-        densities = get_density(mvalues, numsamples)
-        if nlag != 1
+        densities = get_density(mvalues)
+        if (nlag != 1) && (sum(densities) > 0.0)
             densities *= StatsBase.autocor(densities, [nlag])[1]
         end
         out[:, k] .+= densities
