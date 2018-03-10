@@ -1,6 +1,7 @@
 module Errors
 
 using MLBase
+using StatsBase
 
 Coordinate = CartesianIndex{2}
 const Area = Dict{Coordinate, Bool}
@@ -55,38 +56,55 @@ function assert_empty_intersection(this::Vector{T})::Void where {T <: AbstractMa
 end
 
 function convert_to_binary(prediction_images::Vector{T},
-                truth_images::Vector{G},
-                τ::Z)::Tuple{Matrix{Bool}, Vector{Bool}} where {T <: AbstractMatrix, G <: AbstractMatrix, Z <: AbstractArray}
+                            truth_images::Vector{G},
+                            thresholds::Z)::Dict{Float64, Tuple{Vector{Bool}, Vector{Bool}} } where {T <: AbstractMatrix, G <: AbstractMatrix, Z <: AbstractArray}
 
-    prediction = Vector{Bool}(length(prediction_images))
-    labels     = Matrix{Bool}(length(prediction), length(τ))
+    base_truth_image_areas = Dict{Int64, Area}()
+    [base_truth_image_areas[x] = non_zero_area(truth_images[x]) for x in eachindex(truth_images)]
 
-    truth_image_areas = Dict{Int64, Area}()
-    [truth_image_areas[x] = non_zero_area(truth_images[x]) for x in eachindex(truth_images)]
-
+    ious = Matrix{Float64}(length(prediction_images), length(base_truth_image_areas))
     for k in eachindex(prediction_images)
-        img = prediction_images[k]
-        img_area = non_zero_area(img)
-        score = -Inf
+        img_area = non_zero_area(prediction_images[k])
+        for (idx, truth_area) in base_truth_image_areas
+            ious[k, idx] = intersection_over_union(img_area, truth_area)
+        end
+    end
 
-        for (idx, truth_area) in truth_image_areas
-            score = intersection_over_union(img_area, truth_area)
-            if score > 0.0
-                delete!(truth_image_areas, idx)
-                break
+    predictions_per_threshold = Dict{Float64, Tuple{Vector{Bool}, Vector{Bool}}}()
+
+    for τidx in eachindex(thresholds)
+        threshold_predictions = Vector{Bool}(length(prediction_images))
+        threshold_labels      = Vector{Bool}(length(prediction_images))
+
+        τ = thresholds[τidx]
+        truth_image_areas = copy(base_truth_image_areas)
+
+        for k in eachindex(prediction_images)
+            img = prediction_images[k]
+            score = 0.0
+
+            for (idx, truth_area) in truth_image_areas
+                score = ious[k, idx]
+
+                if score > τ
+                    delete!(truth_image_areas, idx)
+                    break
+                end
             end
+
+            threshold_predictions[k] = true
+            threshold_labels[k] = score > τ
         end
 
-        prediction[k] = true
-        labels[k, :] = score .> τ
+        for idx in truth_image_areas
+            push!(threshold_predictions, false)
+            push!(threshold_labels, true)
+        end
+
+        predictions_per_threshold[τ] = (threshold_labels, threshold_predictions)
     end
 
-    for idx in truth_image_areas
-        push!(prediction, false)
-        labels = [labels; trues(1, length(τ))]
-    end
-
-    return (labels, prediction)
+    return predictions_per_threshold
 end
 
 "Result for a single image"
@@ -94,14 +112,21 @@ function metric(prediction_images::Vector{T},
                 truth_images::Vector{G},
                 τ::Z)::Vector{Float64}  where {T <: AbstractMatrix, G <: AbstractMatrix, Z <: AbstractArray}
 
-    labels, predictions = convert_to_binary(prediction_images,
-                                            truth_images,
-                                            τ)
+    # @printf("Number of true objects: %d\n", length(truth_images))
+    # @printf("Number of predicted objects: %d\n", length(prediction_images))
+
+    thresholded_predictions = convert_to_binary(prediction_images,
+                                                truth_images,
+                                                τ)
 
     out = similar(τ)
     for k in eachindex(τ)
-        r = MLBase.roc(labels[:, k], predictions)
-        out[k] = r.tp / (r.tp + r.fp + r.fn)
+        l, p = thresholded_predictions[τ[k]]
+        tp = sum( p .& l)
+        fn = sum(.!p .& l)
+        fp = sum( p .& .!l)
+        out[k] = tp / (tp + fn + fp)
+        # @printf("%2.2f   %d     %d      %d      %2.2f\n", τ[k], tp, fp, fn, out[k])
     end
 
     return out
@@ -118,6 +143,44 @@ function metric(prediction_images::Vector{T},
 
     τ_span = 0.5:0.05:0.95
     return mean(metric(prediction_images, truth_images, τ_span))
+end
+
+"Returns map: label -> vector of (linear index, length)"
+function encode(this::Matrix{Int64})::Dict{Int64, Vector{Pair{Int64, Int64}}}
+    labels = unique(this)
+    labels = labels[labels .!= 0]
+
+    out = Dict{Int64, Vector{Pair{Int64, Int64}}}()
+    [out[x] = Vector{Pair{Int64, Int64}}(0) for x in labels]
+
+    v = this[:]
+    vals, lens = StatsBase.rle(v)
+    idx = 0
+    for k in eachindex(vals)
+        label = v[idx + 1]
+        @assert label == vals[k]
+        enc = Pair(idx+1, lens[k])
+        idx += lens[k]
+        if !haskey(out, label)
+            continue
+        end
+
+        push!(out[label], enc)
+    end
+    return out
+end
+
+function decode(this::Dict{Int64, Vector{Pair{Int64, Int64}}}, sz::Tuple{Int64, Int64})
+    out = zeros(Int64, sz)
+    out_vec = out[:]
+    for (label, v) in this
+        for item in v
+            span = item.first : (item.first + item.second - 1)
+            out_vec[span] .= label
+        end
+    end
+
+    return reshape(out_vec, sz)
 end
 
 end
