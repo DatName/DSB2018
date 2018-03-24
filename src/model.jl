@@ -1,5 +1,6 @@
 module Model
 
+using Flux
 using Images
 using Plots
 using Juno
@@ -184,7 +185,11 @@ end
 
 function to_density(colored_input::Matrix{X}, nlag::Int64) where {X <: Any}
 
-    this = convert.(Float64, convert.(Gray{Normed{UInt8,8}}, colored_input))
+    if X <: ColorTypes.AbstractGray
+        colored_input = convert.(Gray{Normed{UInt8,8}}, colored_input)
+    end
+
+    this = convert.(Float64, colored_input)
     this = skimage_restoration.denoise_bilateral(this, multichannel=false)
 
     out = zeros(size(this))
