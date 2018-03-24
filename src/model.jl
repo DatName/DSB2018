@@ -228,4 +228,36 @@ function to_density(colored_input::Matrix{X}, nlag::Int64) where {X <: Any}
     return res
 end
 
+function make_batches(img::Matrix{T}, sz::Tuple{Int64, Int64}; δ::Int64 = 1)::Vector{Matrix{T}} where {T <: Any}
+    idx = 1 : sz[1], 1 : sz[2]
+
+    out = Vector{Matrix}(0)
+    for kx = 0 : δ : (size(img, 1) - sz[1])
+        for ky = 0 : δ : (size(img, 2) - sz[2])
+            push!(out, img[idx[1] + kx, idx[2] + ky])
+        end
+    end
+    return out
+end
+
+function apply_batched_model(model::Flux.Chain, sz::Tuple{Int64, Int64}, img::T) where {T <: AbstractArray}
+    num_visits = zeros(size(img))
+    idx = 1 : sz[1], 1 : sz[2]
+
+    @assert size(img, 4) == 1
+
+    out = Matrix{Float64}(size(img)[1], size(img)[2])
+    Juno.@progress "Applying model" for kx = 0 :  (size(img, 1) - sz[1])
+        for ky = 0 : (size(img, 2) - sz[2])
+            res = model(img[idx[1] + kx, idx[2] + ky, :, :])
+            num_visits[idx[1] + kx, idx[2] + ky] .+= 1.
+            out[idx[1] + kx, idx[2] + ky] .+= res.data
+        end
+    end
+
+    out_normed = out ./ num_visits
+    out_normed[num_visits .== 0.0] = 0.0
+    return out_normed
+end
+
 end
