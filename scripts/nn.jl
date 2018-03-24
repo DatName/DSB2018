@@ -68,4 +68,5 @@ Juno.@progress "Training" for k = 1 : 1000
     end
 end
 
+@benchmark nn_model(target) #95 ms
 imshow(nn_model(target).data)
