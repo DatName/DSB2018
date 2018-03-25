@@ -4,11 +4,8 @@ using ImageView
 using Images
 using Plots
 
-
 function form_regressor(this::DSB2018.Data.Image)
     x̂ = Float64.(Gray.(this.image))
-
-    ∂xx, ∂xy = imgradients(x̂, KernelFactors.ando3)
     dens = DSB2018.Model.to_density(x̂, 4)
 
     grad_y, grad_x, edges, orient = imedge(dens, KernelFactors.ando3, "replicate")
@@ -36,6 +33,46 @@ function form_regressand(this::DSB2018.Data.Image)
     ŷ, ŵ
 end
 
+function form_prediction(model::Flux.Chain,
+                            batch_size::Tuple{Int64, Int64},
+                            img::DSB2018.Data.Image;
+                            numsamples::Int64 = 100)
+
+    dens, img_f, edges = form_regressor(img)
+    batch_indices = DSB2018.Model.make_batches(size(dens), batch_size, 1)
+
+    batch_indices = rand(batch_indices, numsamples)
+
+    dens_batches  = DSB2018.Model.make_batches(dens, batch_indices)
+    img_batches   = DSB2018.Model.make_batches(img_f, batch_indices)
+    edges_batches = DSB2018.Model.make_batches(edges, batch_indices)
+
+    res = zeros(size(img.image))
+    num_visits = zeros(size(img.image))
+
+    x = Array{Float64}((batch_size[1], batch_size[2], 3, 1))
+    for k in eachindex(batch_indices)
+        x[:, :, 1, 1] .= dens_batches[k]
+        x[:, :, 2, 1] .= img_batches[k]
+        x[:, :, 3, 1] .= edges_batches[k]
+        prediction = model(x)
+
+        idx = batch_indices[k]
+        res[idx[1], idx[2]] .+= prediction.data
+        num_visits[idx[1], idx[2]] .+= 1.0
+    end
+
+    res = res ./ num_visits
+    res[num_visits .== 0.0] = 0.0
+
+    N = sum(abs.(res))
+    if N == 0.0
+        return res
+    end
+
+    return res / N
+end
+
 function form_data(this::DSB2018.Data.Image,
                     batch_size::Tuple{Int64, Int64},
                     num::Int64)
@@ -43,18 +80,17 @@ function form_data(this::DSB2018.Data.Image,
     dens, img_f, edges = form_regressor(this)
     y, w = form_regressand(this)
 
-    dens_batches_all  = DSB2018.Model.make_batches(dens, batch_size, δ = 10)
+    batch_indices = DSB2018.Model.make_batches(size(this.image), batch_size, 10)
 
-    j = unique(rand(1 : length(dens_batches_all), num))
+    rnd_batch_indices = unique(rand(batch_indices, num))
 
-    dens_batches = dens_batches_all[j]
+    dens_batches   = DSB2018.Model.make_batches(dens, rnd_batch_indices)
+    img_f_batches  = DSB2018.Model.make_batches(img_f, rnd_batch_indices)
+    edges_batches  = DSB2018.Model.make_batches(edges, rnd_batch_indices)
+    reg_batches    = DSB2018.Model.make_batches(y, rnd_batch_indices)
+    weight_batches = DSB2018.Model.make_batches(w, rnd_batch_indices)
 
-    img_f_batches = DSB2018.Model.make_batches(img_f, batch_size, δ = 10)[j]
-    edges_batches = DSB2018.Model.make_batches(edges, batch_size, δ = 10)[j]
-    reg_batches   = DSB2018.Model.make_batches(y, batch_size, δ = 10)[j]
-    weight_batches = DSB2018.Model.make_batches(w, batch_size, δ = 10)[j]
-
-    num_batches = length(reg_batches)
+    num_batches = length(rnd_batch_indices)
 
     target = Array{Float64}((batch_size[1], batch_size[2], 3, num_batches))
     for k = 1 : num_batches
@@ -129,9 +165,11 @@ num_train = Int64(round(length(train_data)*train_percent))
 num_test  = length(train_data) - num_train
 
 jtrain = rand(1 : length(train_data), num_train)
-jtest  = rand(1 : length(train_data), num_test)
+jtest  = setdiff(1:length(train_data), jtrain)
 
-Juno.@progress "Training" for k = 1 : 5000
+check_points = Vector{Flux.Chain}(0)
+
+Juno.@progress "Training" for k = 1 : 200
     Flux.train!(loss, train_data[jtrain], opt)
 
     train_loss = mean(loss.(train_data[jtrain]))
@@ -139,6 +177,7 @@ Juno.@progress "Training" for k = 1 : 5000
 
     push!(ltrain, train_loss.tracker.data)
     push!(ltest, test_loss.tracker.data)
+    push!(check_points, deepcopy(nn_model))
 
     if mod(k, 10) == 0
         plt_train = plot(ltrain[10:end],
@@ -146,11 +185,34 @@ Juno.@progress "Training" for k = 1 : 5000
                         fillrange = [minimum(ltrain) maximum(ltrain)],
                         fillalpha = 0.3)
 
-        plt_test = plot(ltest[10:end],
+        plt_valid = plot(ltest[10:end],
                         title = @sprintf("Test Loss: %2.6f", test_loss),
                         fillrange = [minimum(ltest) maximum(ltest)],
                         fillalpha = 0.3)
 
-        display(plot(plt_train, plt_test, layout = grid(2, 1)))
+        display(plot(plt_train, plt_valid, layout = grid(2, 1)))
     end
 end
+
+all_images = DSB2018.Data.loadTrainImage.(ids)
+
+scores = Vector{Float64}(length(all_images))
+Juno.@progress "Metric" for k in eachindex(all_images)
+    scores[k] = get_metric(all_images[k],
+                        form_prediction(nn_model, batch_size, all_images[k], numsamples = 90))
+    display(scatter(scores[1:k], title=@sprintf("%2.4f", mean(scores[1:k]))))
+end
+
+scores_prev = Vector{Float64}(length(all_images))
+Juno.@progress "Metric2" for k in eachindex(scores_prev)
+    x̂ = Float64.(Gray.(all_images[k].image))
+    p̂ = DSB2018.Model.to_density(x̂, 4)
+    scores_prev[k] = get_metric(all_images[k], p̂)
+end
+
+
+scatter(scores, title=@sprintf("%2.4f", mean(scores)))
+scatter(scores_prev, title=@sprintf("%2.4f", mean(scores_prev)))
+
+imshow(pred)
+get_metric(img, pred)

@@ -1,3 +1,5 @@
+__precompile__(false)
+
 module Model
 
 using Flux
@@ -228,19 +230,47 @@ function to_density(colored_input::Matrix{X}, nlag::Int64) where {X <: Any}
     return res
 end
 
-function make_batches(img::Matrix{T}, sz::Tuple{Int64, Int64}; δ::Int64 = 1)::Vector{Matrix{T}} where {T <: Any}
+function make_batches(img_size::Tuple{Int64, Int64}, sz::Tuple{Int64, Int64}, δ::Int64)
     idx = 1 : sz[1], 1 : sz[2]
 
-    out = Vector{Matrix}(0)
-    for kx = 0 : δ : (size(img, 1) - sz[1])
-        for ky = 0 : δ : (size(img, 2) - sz[2])
-            push!(out, img[idx[1] + kx, idx[2] + ky])
-        end
+    ind = Vector{Tuple{UnitRange{Int64}, UnitRange{Int64}}}(0)
+
+    kx_last = img_size[1] - sz[1]
+    ky_last = img_size[2] - sz[2]
+
+    kx_offset = collect(0 : δ : kx_last)
+    ky_offset = collect(0 : δ : ky_last)
+
+    if last(kx_offset) != kx_last
+        push!(kx_offset, kx_last)
     end
+
+    if last(ky_offset) != ky_last
+        push!(ky_offset, ky_last)
+    end
+
+    for kx = kx_offset, ky in ky_offset
+        ix = idx[1] + kx
+        iy = idx[2] + ky
+        push!(ind, (ix, iy))
+    end
+
+    return ind
+end
+
+function make_batches(img::Matrix{T}, idx::Vector{Tuple{UnitRange{Int64}, UnitRange{Int64}}}) where {T <: Any}
+
+    out = Vector{Matrix{T}}(0)
+    for j in idx
+        push!(out, img[j[1], j[2]])
+    end
+
     return out
 end
 
-function apply_batched_model(model::Flux.Chain, sz::Tuple{Int64, Int64}, img::T) where {T <: AbstractArray}
+function apply_batched_model(model::Flux.Chain,
+                             sz::Tuple{Int64, Int64},
+                             img::T) where {T <: AbstractArray}
     num_visits = zeros(size(img))
     idx = 1 : sz[1], 1 : sz[2]
 
