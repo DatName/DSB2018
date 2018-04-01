@@ -149,7 +149,7 @@ function submission(this::Vector{Prediction})::DataFrame
     return DataFrame(ImageId = image_ids, EncodedPixels = encodedpixels)
 end
 
-function submit!(this::DataFrame)
+function submit(this::DataFrame)
     submit_path = joinpath(@__DIR__, "../submissions")
     submit_file = string(now(Dates.UTC), ".csv")
     save(joinpath(submit_path, submit_file), this, quotechar = nothing)

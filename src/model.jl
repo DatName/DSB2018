@@ -290,4 +290,25 @@ function apply_batched_model(model::Flux.Chain,
     return out_normed
 end
 
+function max_distance_to_neighbor(orig::Matrix{Float64}, mask::Matrix{Float64}, sz::Int64)
+    x = Vector{Float64}(0)
+    y = Vector{Float64}(0)
+    z = zeros(size(orig))
+
+    idx = 1 : sz, 1 : sz
+    c0 = Int64(round(sz/2)), Int64(round(sz/2))
+    Juno.@progress for kx = 0 :  (size(orig, 1) - sz)
+        for ky = 0 : (size(orig, 2) - sz)
+            v = minimum(orig[idx[1] + kx, idx[2] + ky])
+            v0 = orig[c0[1] + kx, c0[2] + ky]
+
+            z[c0[1] + kx, c0[1] + ky] = v/v0
+            push!(x, v0 / v * v0)
+            push!(y, mask[c0[1] + kx, c0[2] + ky])
+        end
+    end
+
+    (x, y, z)
+end
+
 end
