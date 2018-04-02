@@ -66,7 +66,7 @@ end
 
 function train(this::Container; mdl = get_model(this.n))
     numepochs = 1000
-    opt = Flux.Nesterov(params(mdl), 1.)
+    opt = Flux.Nesterov(params(mdl), 0.5)
 
     ntrain = Int64(round(length(this.data)*0.5))
     jtrain = unique(rand(1:length(this.data), ntrain))

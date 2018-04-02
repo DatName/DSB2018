@@ -311,4 +311,11 @@ function max_distance_to_neighbor(orig::Matrix{Float64}, mask::Matrix{Float64}, 
     (x, y, z)
 end
 
+function metric(prediction::BitArray{2}, labeled_truth::Matrix{Int64})
+    labeled_prediction = Images.label_components(prediction)
+    prediction_vector  = split_labeled_matrix(labeled_prediction)
+    truth_vector = split_labeled_matrix(labeled_truth)
+    metric(prediction_vector, truth_vector)
+end
+
 end
