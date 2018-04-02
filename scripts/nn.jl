@@ -159,12 +159,12 @@ end
 bx = batch_size[1]
 by = batch_size[2]
 
-struct IMResize2
+struct IMResize
     size::Tuple{Int64, Int64}
 end
 
-Flux.treelike(IMResize2)
-function (this::IMResize2)(x)
+Flux.treelike(IMResize)
+function (this::IMResize)(x)
     return Flux.Tracker.track(Images.imresize, x, this.size)
 end
 
@@ -174,11 +174,11 @@ function back(::typeof(Images.imresize), Δ, xs::Flux.TrackedArray, _...)
     back(xs, Images.imresize(Δ, size(xs)))
 end
 
-rz_down1 = IMResize2((88, 88))
-rz_down2 = IMResize2((56, 56))
+rz_down1 = IMResize((88, 88))
+rz_down2 = IMResize((56, 56))
 
-rz_up1   = IMResize2((88, 88))
-rz_up2   = IMResize2((bx, by))
+rz_up1   = IMResize((88, 88))
+rz_up2   = IMResize((bx, by))
 
 nn_model = Chain(Flux.Conv((9, 9), 3 => 1, pad = (4, 4), σ),
                 x -> reshape(x, (bx, by)),
@@ -250,12 +250,3 @@ Juno.@progress "Metric2" for k in eachindex(scores_prev)
     p̂ = DSB2018.Model.to_density(x̂, 4)
     scores_prev[k] = get_metric(all_images[k], p̂)
 end
-
-
-scatter(scores, title=@sprintf("%2.4f", mean(scores)))
-scatter(scores_prev, title=@sprintf("%2.4f", mean(scores_prev)))
-
-imshow(pred)
-get_metric(img, pred)
-
-x̂ = Float64.(Gray.(img.image))

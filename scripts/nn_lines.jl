@@ -65,8 +65,8 @@ function loss(this::Tuple{Vector{Float64}, Vector{Float64}}, mdl::Flux.Chain)
 end
 
 function train(this::Container; mdl = get_model(this.n))
-    numepochs = 1000
-    opt = Flux.Nesterov(params(mdl), 0.5)
+    numepochs = 100
+    opt = Flux.Nesterov(params(mdl), 0.1)
 
     ntrain = Int64(round(length(this.data)*0.5))
     jtrain = unique(rand(1:length(this.data), ntrain))
